@@ -1,0 +1,128 @@
+!pip install SpeechRecognition pydub noisereduce ipywidgets matplotlib wordcloud
+import speech_recognition as sr
+from pydub import AudioSegment
+import noisereduce as nr
+import os
+import IPython.display as display
+import ipywidgets as widgets
+import matplotlib.pyplot as plt
+from wordcloud import WordCloud
+import json
+
+def identify_stuttered_word(text):
+    words = text.split()
+    repeated_words = {}
+    for word in words:
+        count = words.count(word)
+        if count > 1:
+            repeated_words[word] = count
+    return repeated_words
+
+def practice_recommendations(word):
+    recommendations = [
+        f"Practice saying '{word}' slowly and clearly.",
+        f"Use '{word}' in a sentence like: 'I will practice saying {word} clearly.'",
+        f"Try using similar words: {', '.join(similar_words(word))}"
+    ]
+    return recommendations
+
+def similar_words(word):
+    similar = {
+        'I': ['me', 'myself'],
+        'you': ['yourself', 'yours'],
+        'he': ['him', 'his'],
+        'she': ['her', 'hers']
+    }
+    return similar.get(word.lower(), [word])
+
+def train_model(file_path):
+    print(f"Training model with file: {file_path}")
+
+recognizer = sr.Recognizer()
+
+def upload_and_process(change):
+    uploaded_file = change['new']
+    file_name = list(uploaded_file.keys())[0]
+    
+    with open(file_name, 'wb') as f:
+        f.write(uploaded_file[file_name]['content'])
+    
+    mp3_audio = AudioSegment.from_mp3(file_name)
+    wav_file = "uploaded_audio.wav"
+    mp3_audio.export(wav_file, format="wav")
+
+    wav_audio = AudioSegment.from_wav(wav_file)
+    wav_audio_data = wav_audio.get_array_of_samples()
+    reduced_noise = nr.reduce_noise(y=wav_audio_data, sr=wav_audio.frame_rate)
+    reduced_noise_audio = AudioSegment(
+        data=reduced_noise.tobytes(),
+        sample_width=wav_audio.sample_width,
+        frame_rate=wav_audio.frame_rate,
+        channels=wav_audio.channels
+    )
+    reduced_noise_file = "reduced_noise.wav"
+    reduced_noise_audio.export(reduced_noise_file, format="wav")
+
+    try:
+        with sr.AudioFile(reduced_noise_file) as source:
+            audio_data = recognizer.record(source)
+            print("Recognizing...")
+            text = recognizer.recognize_google(audio_data)
+            print("You said:", text)
+
+            stuttered_words = identify_stuttered_word(text)
+            if stuttered_words:
+                most_stuttered_word = max(stuttered_words, key=stuttered_words.get)
+                print("Most stuttered word:", most_stuttered_word)
+
+                recommendations = practice_recommendations(most_stuttered_word)
+                for recommendation in recommendations:
+                    print(recommendation)
+
+                with open('transcriptions.json', 'a') as f:
+                    json.dump({'file': file_name, 'text': text, 'stuttered_words': stuttered_words}, f)
+                    f.write('\n')
+
+                display_word_cloud(stuttered_words)
+            else:
+                print("No stuttered words found.")
+
+    except sr.UnknownValueError:
+        print("Sorry, could not understand audio.")
+    except sr.RequestError as e:
+        print("Error:", e)
+
+    os.remove(wav_file)
+    os.remove(reduced_noise_file)
+
+def display_word_cloud(stuttered_words):
+    wordcloud = WordCloud(width=800, height=400).generate_from_frequencies(stuttered_words)
+    plt.figure(figsize=(10, 5))
+    plt.imshow(wordcloud, interpolation='bilinear')
+    plt.axis("off")
+    plt.show()
+
+upload_widget = widgets.FileUpload(accept='.mp3', multiple=False)
+upload_widget.observe(upload_and_process, names='value')
+
+display.display(upload_widget)
+
+train_button = widgets.Button(description="Train Model")
+
+def on_train_button_click(b):
+    if upload_widget.value:
+        file_name = list(upload_widget.value.keys())[0]
+        train_model(file_name)
+    else:
+        print("Please upload a file first.")
+
+train_button.on_click(on_train_button_click)
+display.display(train_button)
+
+record_button = widgets.Button(description="Record Practice")
+display.display(record_button)
+
+def on_record_button_click(b):
+    print("Recording your practice session... (this is a placeholder)")
+
+record_button.on_click(on_record_button_click)
