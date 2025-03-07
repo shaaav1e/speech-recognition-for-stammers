@@ -1,4 +1,4 @@
---Overview of the Project--
+--University Project for AI--
 
 Following are the main functionalities of the project:
 
